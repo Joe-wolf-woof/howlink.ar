@@ -878,11 +878,7 @@ photoShowButton.addEventListener('click', async () => {
   if (!lastPhotoFrame || photoShowBusy) return;
   photoShowBusy = true;
   photoShowButton.disabled = true;
-  const waitStartedAt = Date.now();
-  photoReaction.textContent = '……（見ている）';
-  const waitTimer = setInterval(() => {
-    photoReaction.textContent = `……（見ている・${Math.round((Date.now() - waitStartedAt) / 1000)}秒）`;
-  }, 1000);
+  photoReaction.textContent = 'じっくり見ている。人間は興味深い…。';
   try {
     const reply = await generateVisionReply(lastPhotoFrame, '');
     photoReaction.textContent = reply.text;
@@ -892,7 +888,6 @@ photoShowButton.addEventListener('click', async () => {
   } catch (err) {
     photoReaction.textContent = `よく見えなかった。もう一度試してくれ。（${err.message}）`;
   } finally {
-    clearInterval(waitTimer);
     photoShowBusy = false;
     photoShowButton.disabled = false;
   }
