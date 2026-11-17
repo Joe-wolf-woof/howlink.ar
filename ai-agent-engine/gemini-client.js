@@ -16,6 +16,7 @@ const MODEL_CANDIDATES = [
 'gemini-3.5-flash',
 'gemini-3.8-flash',
 'gemini-3.5-flash-lite',
+'gemini-2.5-flash-lite',
 'gemini-3.6-flash',
 'gemini-2.5-flash',
 'gemini-2.0-flash',
@@ -211,7 +212,10 @@ const parts = [
 { text: PERSONA_PROMPT + '\n' + VISION_PROMPT + (userText? `\n\n家の人間の発言: ${userText}`: '')},
 { inline_data: { mime_type: frame.mimeType, data: frame.data}},
 ];
-// 画像認識は速度優先: 軽量モデル（lite）を先頭に試し、1モデル10秒・全体25秒で見切る。
-const visionModels = [...new Set(['gemini-3.5-flash-lite', ...orderedModels()])];
-return requestWithFallback(parts, { timeoutMs: 10000, deadlineMs: 25000, models: visionModels });
+// 画像認識は速度最優先: 軽量モデル（lite 系）をすべて先に試し、その後に通常モデルへ。
+// 前回成功したモデルを優先する通常の順序（orderedModels）より、lite の速さを優先する。
+// 1モデル8秒・全体20秒で見切る。
+const liteModels = MODEL_CANDIDATES.filter((m) => m.includes('lite'));
+const visionModels = [...new Set([...liteModels, ...orderedModels()])];
+return requestWithFallback(parts, { timeoutMs: 8000, deadlineMs: 20000, models: visionModels });
 }
