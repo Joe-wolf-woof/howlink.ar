@@ -71,10 +71,19 @@
       </div>
       <p class="settings-desc">GitHubトークンを保存すると、「見せた記憶」が自動で同期され、ハウルのX投稿にも反映されます。トークンはこのブラウザの中にだけ保存されます。</p>
       <p id="sync-status" class="settings-desc"></p>
+      <div class="settings-row" style="margin-top:12px">
+        <input id="owner-pass-input" type="password" placeholder="オーナーの合言葉（記憶の有効化用）" />
+        <button id="set-owner-pass-button">合言葉を設定</button>
+      </div>
+      <div class="settings-row" style="margin-top:8px">
+        <button id="toggle-owner-button" class="sub-action">オーナーモードを解除する</button>
+      </div>
+      <p class="settings-desc">「見せた記憶」は、合言葉を設定してオーナーモードを解除した端末でのみ記録されます。リンクから開いた他の人の端末では、合言葉が未設定のため何も記憶されません。合言葉はハッシュ化されてこのブラウザの中にだけ保存されます。</p>
+      <p id="owner-status" class="settings-desc"></p>
       <p id="status-line"></p>
     </div>
   </footer>
 
-  <script type="module" src="./main.js?v=20261117-1"></script>
+  <script type="module" src="./main.js?v=20261117-2"></script>
 </body>
 </html>

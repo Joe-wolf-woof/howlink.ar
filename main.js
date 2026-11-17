@@ -41,6 +41,10 @@ const saveKeyButton = document.getElementById('save-key-button');
 const exportButton = document.getElementById('export-button');
 const ghTokenInput = document.getElementById('gh-token-input');
 const saveGhTokenButton = document.getElementById('save-gh-token-button');
+const ownerPassInput = document.getElementById('owner-pass-input');
+const setOwnerPassButton = document.getElementById('set-owner-pass-button');
+const toggleOwnerButton = document.getElementById('toggle-owner-button');
+const ownerStatus = document.getElementById('owner-status');
 const syncStatus = document.getElementById('sync-status');
 const statusLine = document.getElementById('status-line');
 const photoUi = document.getElementById('photo-ui');
@@ -116,6 +120,49 @@ loadMemory().then((m) => {
   refreshMemCtx();
 });
 
+// --- オーナーロック（「見せた記憶」はオーナーの端末でのみ記録する） ---
+// 公開リンクから他人が開いた場合、その端末では合言葉が未設定のため記憶は一切残らない。
+// 合言葉は SHA-256 ハッシュのみを localStorage に保存する（平文は保存しない）。
+const OWNER_HASH_KEY = 'howling_owner_hash';
+const OWNER_UNLOCK_KEY = 'howling_owner_unlocked';
+
+function getOwnerHash() {
+  try { return localStorage.getItem(OWNER_HASH_KEY) || ''; } catch { return ''; }
+}
+
+async function hashPassphrase(pw) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`howlink-owner:${pw}`));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** 記憶が有効か：合言葉が設定済みで、かつこの端末で解除されている場合のみ true */
+function memoryEnabled() {
+  if (!getOwnerHash()) return false;
+  try { return localStorage.getItem(OWNER_UNLOCK_KEY) === '1'; } catch { return false; }
+}
+
+function setOwnerUnlocked(on) {
+  try {
+    if (on) localStorage.setItem(OWNER_UNLOCK_KEY, '1');
+    else localStorage.removeItem(OWNER_UNLOCK_KEY);
+  } catch { /* 保存できなくても体験は止めない */ }
+  refreshOwnerStatus();
+}
+
+function refreshOwnerStatus() {
+  if (!ownerStatus || !toggleOwnerButton) return;
+  if (!getOwnerHash()) {
+    ownerStatus.textContent = 'オーナーの合言葉が未設定です。この端末では「見せた記憶」は残りません。';
+    toggleOwnerButton.textContent = 'オーナーモードを解除する';
+  } else if (memoryEnabled()) {
+    ownerStatus.textContent = 'オーナーモード：ON（見せた物は記憶されます）';
+    toggleOwnerButton.textContent = 'オーナーモードをロックする';
+  } else {
+    ownerStatus.textContent = 'オーナーモード：ロック中（見せた物は記憶されません）';
+    toggleOwnerButton.textContent = 'オーナーモードを解除する';
+  }
+}
+
 // --- 見せた記憶（ローカルエピソード。N2「覚える」） ---
 // 「見せる」で得た反応を localStorage に残し、会話の文脈へ合流させる。
 // howl-agent の記憶ストアとの同期は N3。ここではローカル完結＋書き出しまで。
@@ -132,6 +179,7 @@ function loadLocalEpisodes() {
 }
 
 function saveShownEpisode(text, userText) {
+  if (!memoryEnabled()) return; // オーナーモードでない端末では記憶しない（反応はするが残さない）
   const episodes = loadLocalEpisodes();
   episodes.push({
     id: `ep_${Date.now().toString(36)}${Math.floor(Math.random() * 10000)}`,
@@ -199,6 +247,7 @@ function scheduleSync() {
 async function syncShownEpisodes() {
   const token = getGhToken();
   if (!token || syncRunning) return;
+  if (!memoryEnabled()) return; // オーナーモードでない端末からは同期しない
   syncRunning = true;
   try {
     const headers = {
@@ -692,6 +741,38 @@ saveGhTokenButton.addEventListener('click', async () => {
   setGhToken(ghTokenInput.value.trim());
   statusLine.textContent = 'GitHubトークンを保存した。';
   await syncShownEpisodes();
+});
+
+// --- 設定（オーナーロック） ---
+refreshOwnerStatus();
+setOwnerPassButton.addEventListener('click', async () => {
+  const pw = ownerPassInput.value.trim();
+  if (!pw) { statusLine.textContent = '合言葉を入力して。'; return; }
+  const h = await hashPassphrase(pw);
+  try { localStorage.setItem(OWNER_HASH_KEY, h); } catch { /* 保存できなくても体験は止めない */ }
+  ownerPassInput.value = '';
+  setOwnerUnlocked(true);
+  statusLine.textContent = '合言葉を設定した。この端末では見せた物を記憶する。';
+  scheduleSync();
+});
+toggleOwnerButton.addEventListener('click', async () => {
+  if (memoryEnabled()) {
+    setOwnerUnlocked(false);
+    statusLine.textContent = 'オーナーモードをロックした。';
+    return;
+  }
+  if (!getOwnerHash()) { statusLine.textContent = '先に合言葉を設定して。'; return; }
+  const pw = ownerPassInput.value.trim();
+  if (!pw) { statusLine.textContent = '合言葉を入力してから解除して。'; return; }
+  const h = await hashPassphrase(pw);
+  if (h === getOwnerHash()) {
+    ownerPassInput.value = '';
+    setOwnerUnlocked(true);
+    statusLine.textContent = 'オーナーモードを解除した。見せた物を記憶する。';
+    scheduleSync();
+  } else {
+    statusLine.textContent = '合言葉が違う。';
+  }
 });
 
 // --- 見せた記憶の書き出し（将来 howl-agent のエピソード記憶へ取り込む連携フォーマット） ---
