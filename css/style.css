@@ -119,7 +119,7 @@ body.xr-on #camera-video { display: none; }
 #dock {
   background: #12161f;
   border-top: 1px solid #232b3c;
-  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -145,16 +145,26 @@ body.xr-on #camera-video { display: none; }
   cursor: pointer;
 }
 #talk-button:disabled { background: #55617a; cursor: wait; }
-.action-row { display: flex; gap: 8px; }
+.action-row { display: flex; gap: 6px; }
+/* 5つのボタンを均等幅にし、ラベルは折り返さず横一列に揃える */
+.action-row .sub-action {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 0;
+  font-size: 12px;
+  white-space: nowrap;
+}
 #photo-button {
   flex: 1;
-  padding: 13px;
+  min-width: 0;
+  padding: 10px 0;
   border: none;
   border-radius: 12px;
   background: #27324a;
   color: #e8ecf3;
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 #photo-button:hover { background: #303d5a; }
