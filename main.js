@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261118-1';
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-2';
-import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-5';
+import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261118-1';
 import { speak } from './ai-agent-engine/speech.js?v=20261118-4';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
@@ -404,27 +404,9 @@ const reticle = new THREE.Mesh(
 reticle.visible = false;
 scene.add(reticle);
 
-let xrSupportNote = '';
-let xrSupportPromise = null;
-if (navigator.xr?.isSessionSupported) {
-  xrSupportPromise = navigator.xr.isSessionSupported('immersive-ar').then((ok) => {
-    xrSupported = !!ok;
-    if (xrSupported) {
-      document.querySelector('.start-note').innerHTML =
-        'カメラを使うと、あなたの部屋にハウルが現れます。<br />ARでは、実際の床の上にハウルが現れます。';
-    } else {
-      xrSupportNote = 'この端末・ブラウザではAR（WebXR）が使えないため、通常モードで開きます。';
-      document.querySelector('.start-note').innerHTML += `<br />${xrSupportNote}`;
-    }
-    return xrSupported;
-  }).catch((err) => {
-    xrSupportNote = `AR対応の確認でエラー: ${err.name || err}`;
-    document.querySelector('.start-note').innerHTML += `<br />${xrSupportNote}`;
-    return false;
-  });
-} else {
-  xrSupportNote = 'このブラウザはWebXRに未対応です（Chromeで開くとARが使えます）。';
-}
+// AR（WebXR）開始は 2026-11-18 に廃止した。開始直後の画角を通常モード
+// （カメラ入の状態）に統一するためで、ボタンも増やさないという JOE の指定による。
+// startXR 以下の AR 実装は休眠状態で残してある（再開する場合はここから配線し直す）。
 
 async function startXR() {
   try {
@@ -713,21 +695,13 @@ async function beginWithCamera() {
   say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
 }
 
-// 開始ボタンは1つに統一（2026-11-18 JOE指定）。対応端末では AR で開始し、
-// 床が検出できたら自動で少し離れた位置に立たせることで、開始直後の画角を
-// 「通常モード→AR で離れて立った」見え方に統一する。AR が使えない端末・
-// 開始に失敗した場合は通常モード（カメラ）で開始する。
+// 開始ボタンは1つ（2026-11-18 JOE指定）。常に通常モード（カメラ）で開始し、
+// 開始直後の画角を「カメラ切→カメラ入した後」の見え方に統一する。
+// AR 開始は画角が揃わないため廃止した（ボタンは増やさない）。
 startButton.addEventListener('click', async () => {
   if (started) return;
   started = true;
   dismissStartOverlay();
-  const supported = xrSupportPromise ? await xrSupportPromise : xrSupported;
-  if (supported && (await startXR())) {
-    showNote('床にスマホを向けて。ハウルが床に立つ。');
-    await ensureMemory();
-    say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
-    return;
-  }
   await beginWithCamera();
 });
 

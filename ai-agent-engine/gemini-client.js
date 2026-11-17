@@ -9,17 +9,15 @@
 * モデルについて（2026年時点の注意）:
 * 新規発行キーでは gemini-2.x 系が 404（new users 不可）になるため、
 * 3.x 系から順に試し、成功したモデルを localStorage に覚えるフォールバック方式にする。
+* 2026-11-18：2.5-flash-lite の 404（提供終了）を実機で確認し、2.x 系を候補から全て外した。
 */
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MODEL_CANDIDATES = [
 'gemini-3.5-flash',
 'gemini-3.8-flash',
-'gemini-3.5-flash-lite',
-'gemini-2.5-flash-lite',
 'gemini-3.6-flash',
-'gemini-2.5-flash',
-'gemini-2.0-flash',
+'gemini-3.5-flash-lite',
 ];
 const MODEL_STORAGE_KEY = 'howling_gemini_model';
 const API_KEY_STORAGE_KEY = 'howling_gemini_api_key';
@@ -223,6 +221,6 @@ const visionModels = [
 ...MODEL_CANDIDATES.filter((m) => !m.includes('lite')),
 ...MODEL_CANDIDATES.filter((m) => m.includes('lite')),
 ];
-const visionTimeouts = [20000, 15000, 10000, 8000, 8000, 5000, 5000];
+const visionTimeouts = [20000, 15000, 10000, 8000];
 return requestWithFallback(parts, { timeouts: visionTimeouts, timeoutMs: 8000, deadlineMs: 45000, models: visionModels });
 }
