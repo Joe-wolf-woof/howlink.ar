@@ -67,7 +67,7 @@ return [saved,...MODEL_CANDIDATES.filter((m) => m!== saved)];
 return MODEL_CANDIDATES;
 }
 
-async function callModel(model, key, parts, { thinking = true } = {}) {
+async function callModel(model, key, parts, { thinking = true, timeoutMs = 12000 } = {}) {
 // 応答は1〜2文のJSONのみ。thinking を切って出力上限を絞ることで、
 // 思考トークンに時間を食われる問題（実測: 956トークン消費）を断つ。
 const generationConfig = { responseMimeType: 'application/json', maxOutputTokens: 300 };
@@ -76,11 +76,27 @@ const body = {
 contents: [{ role: 'user', parts}],
 generationConfig,
 };
-const res = await fetch(`${API_BASE}/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+// 遅いモデルを待ち続けないよう、1モデルごとにタイムアウトを設ける。
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), timeoutMs);
+let res;
+try {
+res = await fetch(`${API_BASE}/${model}:generateContent?key=${encodeURIComponent(key)}`, {
 method: 'POST',
 headers: { 'Content-Type': 'application/json'},
 body: JSON.stringify(body),
+signal: controller.signal,
 });
+} catch (e) {
+clearTimeout(timer);
+if (e.name === 'AbortError') {
+const err = new Error(`Gemini API timeout (${model})`);
+err.timeout = true;
+throw err;
+}
+throw e;
+}
+clearTimeout(timer);
 if (!res.ok) {
 let detail = '';
 try {
@@ -120,27 +136,33 @@ s.add(model);
 try { localStorage.setItem(NO_THINKING_KEY, JSON.stringify([...s])); } catch { /* 保存できなくても続行 */ }
 }
 
-async function requestWithFallback(parts) {
+async function requestWithFallback(parts, { timeoutMs = 12000, deadlineMs = 30000, models = null } = {}) {
 const key = getApiKey();
 let lastError = null;
-for (const model of orderedModels()) {
+const startedAt = Date.now();
+for (const model of models || orderedModels()) {
+// 全体の制限時間を超えたら、それ以上モデルを試さない。
+if (Date.now() - startedAt > deadlineMs) break;
 const skipThinking = noThinkingModels().has(model);
 try {
-const reply = await callModel(model, key, parts, { thinking: !skipThinking });
+const reply = await callModel(model, key, parts, { thinking: !skipThinking, timeoutMs });
 localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (err) {
 lastError = err;
+// タイムアウトしたモデルは見切って次へ進む。
+if (err.timeout) continue;
 // 400 はまず「thinkingConfig なし」で同じモデルを1回だけ再試行する。
 // それでも 400 なら、そのモデル固有の問題として次のモデルへ進む。
 if (err.status === 400 && !skipThinking) {
 markNoThinking(model);
 try {
-const reply = await callModel(model, key, parts, { thinking: false });
+const reply = await callModel(model, key, parts, { thinking: false, timeoutMs });
 localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (retryErr) {
 lastError = retryErr;
+if (retryErr.timeout) continue;
 if (![400, 404, 429, 503].includes(retryErr.status)) throw retryErr;
 continue;
 }
@@ -150,7 +172,7 @@ continue;
 if (![400, 404, 429, 503].includes(err.status)) throw err;
 }
 }
-throw lastError;
+throw lastError || new Error('Gemini API timeout');
 }
 
 /**
@@ -189,5 +211,7 @@ const parts = [
 { text: PERSONA_PROMPT + '\n' + VISION_PROMPT + (userText? `\n\n家の人間の発言: ${userText}`: '')},
 { inline_data: { mime_type: frame.mimeType, data: frame.data}},
 ];
-return requestWithFallback(parts);
+// 画像認識は速度優先: 軽量モデル（lite）を先頭に試し、1モデル10秒・全体25秒で見切る。
+const visionModels = [...new Set(['gemini-3.5-flash-lite', ...orderedModels()])];
+return requestWithFallback(parts, { timeoutMs: 10000, deadlineMs: 25000, models: visionModels });
 }

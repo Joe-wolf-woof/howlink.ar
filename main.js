@@ -15,8 +15,8 @@
 import * as THREE from 'three';
 import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261113-6';
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
-import { CameraManager } from './ar-viewer/camera.js?v=20261117-1';
-import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-2';
+import { CameraManager } from './ar-viewer/camera.js?v=20261117-2';
+import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-3';
 import { speak } from './ai-agent-engine/speech.js';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
@@ -849,12 +849,12 @@ function capturePhoto() {
   if (cameraManager.isRunning && cameraVideo.readyState >= 2 && cameraVideo.videoWidth) {
     const vw = cameraVideo.videoWidth;
     const vh = cameraVideo.videoHeight;
-    const pScale = Math.min(1, 1280 / Math.max(vw, vh));
+    const pScale = Math.min(1, 1024 / Math.max(vw, vh));
     const pc = document.createElement('canvas');
     pc.width = Math.round(vw * pScale);
     pc.height = Math.round(vh * pScale);
     pc.getContext('2d').drawImage(cameraVideo, 0, 0, pc.width, pc.height);
-    const purl = pc.toDataURL('image/jpeg', 0.85);
+    const purl = pc.toDataURL('image/jpeg', 0.8);
     lastPhotoFrame = { mimeType: 'image/jpeg', data: purl.split(',')[1] };
   }
   photoReaction.textContent = '';
@@ -878,7 +878,11 @@ photoShowButton.addEventListener('click', async () => {
   if (!lastPhotoFrame || photoShowBusy) return;
   photoShowBusy = true;
   photoShowButton.disabled = true;
+  const waitStartedAt = Date.now();
   photoReaction.textContent = '……（見ている）';
+  const waitTimer = setInterval(() => {
+    photoReaction.textContent = `……（見ている・${Math.round((Date.now() - waitStartedAt) / 1000)}秒）`;
+  }, 1000);
   try {
     const reply = await generateVisionReply(lastPhotoFrame, '');
     photoReaction.textContent = reply.text;
@@ -888,6 +892,7 @@ photoShowButton.addEventListener('click', async () => {
   } catch (err) {
     photoReaction.textContent = `よく見えなかった。もう一度試してくれ。（${err.message}）`;
   } finally {
+    clearInterval(waitTimer);
     photoShowBusy = false;
     photoShowButton.disabled = false;
   }
