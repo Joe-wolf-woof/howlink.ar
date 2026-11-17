@@ -20,12 +20,14 @@ export function createScene(container) {
   const scene = new THREE.Scene();
 
   const camera = new THREE.PerspectiveCamera(
-    45,
+    50,
     container.clientWidth / container.clientHeight,
     0.1,
     100
   );
-  camera.position.set(0, 1.6, 3.2);
+  // 距離 4.6m＋画角 50°：開始直後のハウルが大きく見えすぎないよう、AR で
+  // 少し離れて立った時の見え方に寄せた（2026-11-18 JOE指定「3枚目の画角」）。
+  camera.position.set(0, 1.6, 4.6);
   camera.lookAt(0, 0.9, 0);
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.7);

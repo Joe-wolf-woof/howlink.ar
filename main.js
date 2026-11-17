@@ -13,9 +13,9 @@
  * 12月に Tripo Pro 生成モデルへ差し替える前提で、差し替えは avatar.glb の置換のみで済む。
  */
 import * as THREE from 'three';
-import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261113-6';
+import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261118-1';
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
-import { CameraManager } from './ar-viewer/camera.js?v=20261118-1';
+import { CameraManager } from './ar-viewer/camera.js?v=20261118-2';
 import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-5';
 import { speak } from './ai-agent-engine/speech.js?v=20261118-4';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
@@ -28,7 +28,6 @@ const bubbleText = document.getElementById('bubble-text');
 const stageNote = document.getElementById('stage-note');
 const startOverlay = document.getElementById('start-overlay');
 const startButton = document.getElementById('start-button');
-const arButton = document.getElementById('ar-button');
 const cameraVideo = document.getElementById('camera-video');
 const userInput = document.getElementById('user-input');
 const talkButton = document.getElementById('talk-button');
@@ -406,20 +405,22 @@ reticle.visible = false;
 scene.add(reticle);
 
 let xrSupportNote = '';
+let xrSupportPromise = null;
 if (navigator.xr?.isSessionSupported) {
-  navigator.xr.isSessionSupported('immersive-ar').then((ok) => {
+  xrSupportPromise = navigator.xr.isSessionSupported('immersive-ar').then((ok) => {
     xrSupported = !!ok;
     if (xrSupported) {
-      arButton.classList.remove('hidden');
       document.querySelector('.start-note').innerHTML =
         'カメラを使うと、あなたの部屋にハウルが現れます。<br />ARでは、実際の床の上にハウルが現れます。';
     } else {
       xrSupportNote = 'この端末・ブラウザではAR（WebXR）が使えないため、通常モードで開きます。';
       document.querySelector('.start-note').innerHTML += `<br />${xrSupportNote}`;
     }
+    return xrSupported;
   }).catch((err) => {
     xrSupportNote = `AR対応の確認でエラー: ${err.name || err}`;
     document.querySelector('.start-note').innerHTML += `<br />${xrSupportNote}`;
+    return false;
   });
 } else {
   xrSupportNote = 'このブラウザはWebXRに未対応です（Chromeで開くとARが使えます）。';
@@ -440,6 +441,7 @@ async function startXR() {
     session.addEventListener('select', onXRSelect);
     session.addEventListener('end', onXRSessionEnd);
     xrActive = true;
+    firstHitStableAt = -Infinity;
     anchor.visible = false; // 配置するまでは姿を見せない（原点＝目の高さに浮いて見えるため）
     document.body.classList.add('xr-on');
     cameraButton.textContent = 'AR終了';
@@ -457,6 +459,24 @@ async function startXR() {
   }
 }
 
+/** AR：指定した床の点にハウルを立たせる（初回配置の共通処理） */
+function placeWolfAt(point) {
+  anchor.visible = true;
+  anchor.position.copy(point);
+  floorY = point.y;
+  ground.position.y = floorY;
+  // AR では通常モードの「見え方」に合わせる。通常モードは 4.6m 先から見た姿で、
+  // 実寸 1.5m のままだと近くで巨大に見えるため、体長 約0.83m に縮小する（JOE指定）。
+  anchor.scale.setScalar(0.55);
+  xrPlaced = true;
+  reticle.visible = false;
+}
+
+// 自動配置：床が安定して検出できたら、最低でもこの距離（m）だけ離して立たせる。
+// 開始直後の見え方を「少し離れて立った」画角に統一するため（2026-11-18 JOE指定）。
+const AR_AUTO_PLACE_MIN_DIST = 2.2;
+let firstHitStableAt = -Infinity;
+
 function onXRSelect(ev) {
   if (!xrActive) return;
   const refSpace = renderer.xr.getReferenceSpace();
@@ -464,15 +484,7 @@ function onXRSelect(ev) {
   if (!xrPlaced) {
     // 配置前：レティクルの位置（実床のヒット点）に立たせる
     if (!reticle.visible) return;
-    anchor.visible = true;
-    anchor.position.copy(reticle.position);
-    floorY = reticle.position.y;
-    ground.position.y = floorY;
-    // AR では通常モードの「見え方」に合わせる。通常モードは 3.2m 先から見た姿で、
-    // 実寸 1.5m のままだと近くで巨大に見えるため、体長 約0.83m に縮小する（JOE指定）。
-    anchor.scale.setScalar(0.55);
-    xrPlaced = true;
-    reticle.visible = false;
+    placeWolfAt(reticle.position);
     showNote('ハウルが床に立った。床をタップすると、そこへ移動する。');
     return;
   }
@@ -496,6 +508,7 @@ function onXRSessionEnd() {
   xrActive = false;
   xrPlaced = false;
   xrHitSeen = false;
+  firstHitStableAt = -Infinity;
   anchor.visible = true;
   xrSession = null;
   if (hitTestSource) {
@@ -572,10 +585,28 @@ function loop(now, frame) {
             pose.transform.orientation.z, pose.transform.orientation.w
           );
           reticle.visible = true;
+          // 自動配置：床が 0.4 秒安定して検出できたら、タップを待たずに立たせる。
+          // ヒット点が近すぎる場合は、開始直後の画角を統一するため最低距離まで離す。
+          if (firstHitStableAt < 0) firstHitStableAt = now;
+          if (now - firstHitStableAt >= 400) {
+            const p = reticle.position.clone();
+            camera.getWorldPosition(_camPos);
+            const dx = p.x - _camPos.x;
+            const dz = p.z - _camPos.z;
+            const d = Math.hypot(dx, dz);
+            if (d > 0.001 && d < AR_AUTO_PLACE_MIN_DIST) {
+              const k = AR_AUTO_PLACE_MIN_DIST / d;
+              p.x = _camPos.x + dx * k;
+              p.z = _camPos.z + dz * k;
+            }
+            placeWolfAt(p);
+            showNote('ハウルが床に立った。床をタップすると、そこへ移動する。');
+          }
         }
       }
     } else if (now - lastHitAt > 600) {
       reticle.visible = false;
+      firstHitStableAt = -Infinity;
     }
   }
 
@@ -682,23 +713,17 @@ async function beginWithCamera() {
   say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
 }
 
-// 通常モードで開始する。WebXR の画角は端末の AR システム側が決めていて
-// アプリ側では広げられず、通常カメラより狭く見える（2026-11-18 実機報告）。
-// 起動直後の見え方を通常カメラの画角に統一するため、開始ボタンは通常モードにし、
-// AR（実際の床への配置）は専用ボタンからの任意機能にした。
+// 開始ボタンは1つに統一（2026-11-18 JOE指定）。対応端末では AR で開始し、
+// 床が検出できたら自動で少し離れた位置に立たせることで、開始直後の画角を
+// 「通常モード→AR で離れて立った」見え方に統一する。AR が使えない端末・
+// 開始に失敗した場合は通常モード（カメラ）で開始する。
 startButton.addEventListener('click', async () => {
   if (started) return;
   started = true;
   dismissStartOverlay();
-  await beginWithCamera();
-});
-
-arButton.addEventListener('click', async () => {
-  if (started) return;
-  started = true;
-  dismissStartOverlay();
-  if (await startXR()) {
-    showNote('床にスマホを向けて、緑の輪が出た場所をタップして。');
+  const supported = xrSupportPromise ? await xrSupportPromise : xrSupported;
+  if (supported && (await startXR())) {
+    showNote('床にスマホを向けて。ハウルが床に立つ。');
     await ensureMemory();
     say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
     return;

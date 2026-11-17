@@ -25,11 +25,13 @@ export class CameraManager {
     // 初回と「カメラ入」2回目で縦横比が変わることがある。映像は object-fit: cover で
     // 全面表示するため、縦横比が変わると切り取られ方＝画角まで変わってしまう
     // （2026-11-18 実機報告）。ideal 指定なので対応できない端末では近い解像度に落ちる。
+    // 縦横比は縦長 3:4 にする。横長 16:9 だと縦長画面への cover 表示で左右が
+    // 大きく切り取られ、画角が狭く見えるため（2026-11-18 実機報告・画角統一）。
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: 'environment',
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: 1440 },
+        height: { ideal: 1920 },
       },
       audio: false,
     });
