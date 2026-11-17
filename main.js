@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261113-6';
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261117-1';
-import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-1';
+import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-2';
 import { speak } from './ai-agent-engine/speech.js';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';

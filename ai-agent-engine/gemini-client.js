@@ -86,6 +86,12 @@ let detail = '';
 try {
 const errJson = await res.json();
 detail = errJson?.error?.message || '';
+// 400 のときは、どのフィールドが無効か（fieldViolations）も拾って表示に回す。
+const violations = (errJson?.error?.details || [])
+.flatMap((d) => d?.fieldViolations || [])
+.map((v) => `${v.field}: ${v.description}`)
+.join('; ');
+if (violations) detail += ` [${violations}]`;
 } catch { /* 詳細が取れない場合はステータスのみ */}
 const err = new Error(`Gemini API error: ${res.status}${detail? ` — ${detail}`: ''}`);
 err.status = res.status;
@@ -98,32 +104,50 @@ const parsed = JSON.parse(raw);
 return { text: parsed.text, emotion: parsed.emotion || 'idle', source: `gemini (${model})`};
 }
 
+// thinkingConfig（thinkingBudget）を拒否するモデルを覚えておく。
+// 3.x 系では thinkingBudget が無効引数（400）になることがあり、その場合の
+// エラーメッセージは汎用の「Request contains an invalid argument.」で、
+// thinking への言及がないため、文言マッチでは検出できない（2026-11-17 実機で確認）。
+const NO_THINKING_KEY = 'howling_no_thinking_models';
+
+function noThinkingModels() {
+try { return new Set(JSON.parse(localStorage.getItem(NO_THINKING_KEY) || '[]')); } catch { return new Set(); }
+}
+
+function markNoThinking(model) {
+const s = noThinkingModels();
+s.add(model);
+try { localStorage.setItem(NO_THINKING_KEY, JSON.stringify([...s])); } catch { /* 保存できなくても続行 */ }
+}
+
 async function requestWithFallback(parts) {
 const key = getApiKey();
 let lastError = null;
 for (const model of orderedModels()) {
+const skipThinking = noThinkingModels().has(model);
 try {
-const reply = await callModel(model, key, parts);
+const reply = await callModel(model, key, parts, { thinking: !skipThinking });
 localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (err) {
 lastError = err;
-// thinkingConfig を受け付けないモデル（400で thinking に言及）では、
-// thinking なしで同じモデルを1回だけ再試行する。
-if (err.status === 400 && /thinking/i.test(err.detail || '')) {
+// 400 はまず「thinkingConfig なし」で同じモデルを1回だけ再試行する。
+// それでも 400 なら、そのモデル固有の問題として次のモデルへ進む。
+if (err.status === 400 && !skipThinking) {
+markNoThinking(model);
 try {
 const reply = await callModel(model, key, parts, { thinking: false });
 localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (retryErr) {
 lastError = retryErr;
-if (![404, 429, 503].includes(retryErr.status)) throw retryErr;
+if (![400, 404, 429, 503].includes(retryErr.status)) throw retryErr;
 continue;
 }
 }
-// 404（モデル不可）・429（レート制限）・503（高負荷）は別モデルで再試行する。
-// それ以外（400やキー不正など）は即座に投げる。
-if (![404, 429, 503].includes(err.status)) throw err;
+// 404（モデル不可）・429（レート制限）・503（高負荷）・400（再試行後）は別モデルで再試行する。
+// それ以外（キー不正など）は即座に投げる。
+if (![400, 404, 429, 503].includes(err.status)) throw err;
 }
 }
 throw lastError;
