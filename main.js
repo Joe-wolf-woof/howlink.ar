@@ -17,7 +17,7 @@ import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261113
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-1';
 import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-5';
-import { speak } from './ai-agent-engine/speech.js?v=20261118-2';
+import { speak } from './ai-agent-engine/speech.js?v=20261118-3';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
 
@@ -332,13 +332,12 @@ function showBubble(text) {
   bubble.classList.remove('hidden');
 }
 
-/** 感情タグ → 鳴き声の種類（speech.js の4種プリセットに対応） */
+/** 感情タグ → 鳴き声の種類（speech.js の3種プリセットに対応） */
 function cryForEmotion(emotion) {
   switch (emotion) {
     case 'happy': return 'bark'; // 発見・喜び → バウワウ（2連吠え）
     case 'pointing': return 'bark'; // 「見ろ、あちらだ」の発見も吠えで
-    case 'thinking': return 'whine'; // 疑問・興味 → クゥーン
-    default: return 'wuff'; // 通常の返事 → 短い相槌ワフッ
+    default: return 'wuff'; // 通常の返事・考え中 → 短い相槌ワフッ
   }
 }
 
