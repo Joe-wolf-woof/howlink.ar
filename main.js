@@ -17,7 +17,7 @@ import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261113
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-1';
 import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-5';
-import { speak } from './ai-agent-engine/speech.js?v=20261118-1';
+import { speak } from './ai-agent-engine/speech.js?v=20261118-2';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
 
@@ -332,10 +332,20 @@ function showBubble(text) {
   bubble.classList.remove('hidden');
 }
 
-function say(text, emotion = 'idle', { speakIt = true } = {}) {
+/** 感情タグ → 鳴き声の種類（speech.js の4種プリセットに対応） */
+function cryForEmotion(emotion) {
+  switch (emotion) {
+    case 'happy': return 'bark'; // 発見・喜び → バウワウ（2連吠え）
+    case 'pointing': return 'bark'; // 「見ろ、あちらだ」の発見も吠えで
+    case 'thinking': return 'whine'; // 疑問・興味 → クゥーン
+    default: return 'wuff'; // 通常の返事 → 短い相槌ワフッ
+  }
+}
+
+function say(text, emotion = 'idle', { speakIt = true, cry = null } = {}) {
   showBubble(text);
   motion.play(emotion);
-  if (speakIt) speak(text);
+  if (speakIt) speak(cry || cryForEmotion(emotion));
 }
 
 // --- 接地：タップした地面の位置へハウルが移動する（第一作 Phase 3-C を踏襲） ---
@@ -670,7 +680,7 @@ async function beginWithCamera() {
   const cameraOk = await startCamera();
   if (!cameraOk) showNote('カメラなしでも会える。部屋の様子は見えていないがな。');
   await ensureMemory();
-  say(buildGreeting(memory), 'happy');
+  say(buildGreeting(memory), 'happy', { cry: 'howl' }); // 挨拶は遠吠え
 }
 
 // 通常モードで開始する。WebXR の画角は端末の AR システム側が決めていて
@@ -691,7 +701,7 @@ arButton.addEventListener('click', async () => {
   if (await startXR()) {
     showNote('床にスマホを向けて、緑の輪が出た場所をタップして。');
     await ensureMemory();
-    say(buildGreeting(memory), 'happy');
+    say(buildGreeting(memory), 'happy', { cry: 'howl' }); // 挨拶は遠吠え
     return;
   }
   await beginWithCamera();
