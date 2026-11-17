@@ -28,6 +28,7 @@ const bubbleText = document.getElementById('bubble-text');
 const stageNote = document.getElementById('stage-note');
 const startOverlay = document.getElementById('start-overlay');
 const startButton = document.getElementById('start-button');
+const arButton = document.getElementById('ar-button');
 const cameraVideo = document.getElementById('camera-video');
 const userInput = document.getElementById('user-input');
 const talkButton = document.getElementById('talk-button');
@@ -400,9 +401,9 @@ if (navigator.xr?.isSessionSupported) {
   navigator.xr.isSessionSupported('immersive-ar').then((ok) => {
     xrSupported = !!ok;
     if (xrSupported) {
-      startButton.textContent = 'ARで会いに行く';
+      arButton.classList.remove('hidden');
       document.querySelector('.start-note').innerHTML =
-        'ARを使うと、実際の床の上にハウルが現れます。<br />床を映して、緑の輪が出た場所をタップしてください。';
+        'カメラを使うと、あなたの部屋にハウルが現れます。<br />ARでは、実際の床の上にハウルが現れます。';
     } else {
       xrSupportNote = 'この端末・ブラウザではAR（WebXR）が使えないため、通常モードで開きます。';
       document.querySelector('.start-note').innerHTML += `<br />${xrSupportNote}`;
@@ -660,23 +661,40 @@ async function ensureMemory() {
     await loadMemory().then((m) => { memory = m; refreshMemCtx(); });
   }
 }
+function dismissStartOverlay() {
+  startOverlay.classList.add('fading');
+  setTimeout(() => startOverlay.classList.add('hidden'), 700);
+}
+
+async function beginWithCamera() {
+  const cameraOk = await startCamera();
+  if (!cameraOk) showNote('カメラなしでも会える。部屋の様子は見えていないがな。');
+  await ensureMemory();
+  say(buildGreeting(memory), 'happy');
+}
+
+// 通常モードで開始する。WebXR の画角は端末の AR システム側が決めていて
+// アプリ側では広げられず、通常カメラより狭く見える（2026-11-18 実機報告）。
+// 起動直後の見え方を通常カメラの画角に統一するため、開始ボタンは通常モードにし、
+// AR（実際の床への配置）は専用ボタンからの任意機能にした。
 startButton.addEventListener('click', async () => {
   if (started) return;
   started = true;
-  startOverlay.classList.add('fading');
-  setTimeout(() => startOverlay.classList.add('hidden'), 700);
+  dismissStartOverlay();
+  await beginWithCamera();
+});
 
-  if (xrSupported && (await startXR())) {
+arButton.addEventListener('click', async () => {
+  if (started) return;
+  started = true;
+  dismissStartOverlay();
+  if (await startXR()) {
     showNote('床にスマホを向けて、緑の輪が出た場所をタップして。');
     await ensureMemory();
     say(buildGreeting(memory), 'happy');
     return;
   }
-
-  const cameraOk = await startCamera();
-  if (!cameraOk) showNote('カメラなしでも会える。部屋の様子は見えていないがな。');
-  await ensureMemory();
-  say(buildGreeting(memory), 'happy');
+  await beginWithCamera();
 });
 
 // --- 会話 ---

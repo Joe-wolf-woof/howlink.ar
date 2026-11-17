@@ -113,6 +113,17 @@ body.xr-on #camera-video { display: none; }
   box-shadow: 0 10px 30px rgba(232, 163, 61, 0.35);
 }
 #start-button:hover { background: #f2b254; }
+#ar-button {
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: transparent;
+  color: #e8ecf3;
+  border: 1px solid rgba(232, 236, 243, 0.55);
+  cursor: pointer;
+}
+#ar-button:hover { background: rgba(232, 236, 243, 0.12); }
 .start-note { margin: 0; font-size: 12px; line-height: 1.7; color: #9aa7bd; }
 
 /* ---------- 下部ドック ---------- */
