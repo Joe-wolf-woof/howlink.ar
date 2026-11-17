@@ -137,16 +137,20 @@ s.add(model);
 try { localStorage.setItem(NO_THINKING_KEY, JSON.stringify([...s])); } catch { /* 保存できなくても続行 */ }
 }
 
-async function requestWithFallback(parts, { timeoutMs = 12000, deadlineMs = 30000, models = null } = {}) {
+async function requestWithFallback(parts, { timeoutMs = 12000, timeouts = null, deadlineMs = 30000, models = null } = {}) {
 const key = getApiKey();
 let lastError = null;
 const startedAt = Date.now();
-for (const model of models || orderedModels()) {
+const modelList = models || orderedModels();
+for (let i = 0; i < modelList.length; i += 1) {
+const model = modelList[i];
+// このモデルに割り当てる時間。配列指定があれば、順位に応じた比重で配分する。
+const modelTimeout = (timeouts && timeouts[i]) || timeoutMs;
 // 全体の制限時間を超えたら、それ以上モデルを試さない。
 if (Date.now() - startedAt > deadlineMs) break;
 const skipThinking = noThinkingModels().has(model);
 try {
-const reply = await callModel(model, key, parts, { thinking: !skipThinking, timeoutMs });
+const reply = await callModel(model, key, parts, { thinking: !skipThinking, timeoutMs: modelTimeout });
 localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (err) {
@@ -158,7 +162,7 @@ if (err.timeout) continue;
 if (err.status === 400 && !skipThinking) {
 markNoThinking(model);
 try {
-const reply = await callModel(model, key, parts, { thinking: false, timeoutMs });
+const reply = await callModel(model, key, parts, { thinking: false, timeoutMs: modelTimeout });
 localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (retryErr) {
@@ -212,10 +216,13 @@ const parts = [
 { text: PERSONA_PROMPT + '\n' + VISION_PROMPT + (userText? `\n\n家の人間の発言: ${userText}`: '')},
 { inline_data: { mime_type: frame.mimeType, data: frame.data}},
 ];
-// 画像認識は速度最優先: 軽量モデル（lite 系）をすべて先に試し、その後に通常モデルへ。
-// 前回成功したモデルを優先する通常の順序（orderedModels）より、lite の速さを優先する。
-// 1モデル8秒・全体20秒で見切る。
-const liteModels = MODEL_CANDIDATES.filter((m) => m.includes('lite'));
-const visionModels = [...new Set([...liteModels, ...orderedModels()])];
-return requestWithFallback(parts, { timeoutMs: 8000, deadlineMs: 20000, models: visionModels });
+// 画像認識は精度優先: 精度が高い順（通常モデル→lite の順）にトップダウンで試す。
+// 時間配分も精度側に比重を置き、上位モデルほど長く待つ（20秒→15秒→10秒→…）。
+// 前回成功したモデルの優先（orderedModels）は使わず、順序は固定とする。全体45秒で打ち切る。
+const visionModels = [
+...MODEL_CANDIDATES.filter((m) => !m.includes('lite')),
+...MODEL_CANDIDATES.filter((m) => m.includes('lite')),
+];
+const visionTimeouts = [20000, 15000, 10000, 8000, 8000, 5000, 5000];
+return requestWithFallback(parts, { timeouts: visionTimeouts, timeoutMs: 8000, deadlineMs: 45000, models: visionModels });
 }
