@@ -53,6 +53,8 @@ const shutterButton = document.getElementById('shutter-button');
 const photoPreview = document.getElementById('photo-preview');
 const photoImg = document.getElementById('photo-img');
 const photoDownload = document.getElementById('photo-download');
+const photoShowButton = document.getElementById('photo-show-button');
+const photoReaction = document.getElementById('photo-reaction');
 const photoClose = document.getElementById('photo-close');
 
 const { renderer, scene, camera, ground } = createScene(container);
@@ -330,6 +332,8 @@ const placeTarget = new THREE.Vector3();
 let hasPlaceTarget = false;
 let journeyMode = 'walk'; // タップ時点の総距離で決める移動モード（途中では切り替えない）
 let photoMode = false;
+let lastPhotoFrame = null; // 撮影した静止画（カメラのみ）—「写真を見せる」の認識用
+let photoShowBusy = false;
 
 const marker = new THREE.Mesh(
   new THREE.RingGeometry(0.16, 0.22, 40),
@@ -839,6 +843,23 @@ function capturePhoto() {
   }
   ctx.drawImage(gl, 0, 0);
 
+  // 認識用に、カメラだけのフレームも別に残す（合成写真にはオオカミが写り込むため）。
+  // ライブ映像の「見せる」より静止画の方がブレず、認識が安定する。
+  lastPhotoFrame = null;
+  if (cameraManager.isRunning && cameraVideo.readyState >= 2 && cameraVideo.videoWidth) {
+    const vw = cameraVideo.videoWidth;
+    const vh = cameraVideo.videoHeight;
+    const pScale = Math.min(1, 1280 / Math.max(vw, vh));
+    const pc = document.createElement('canvas');
+    pc.width = Math.round(vw * pScale);
+    pc.height = Math.round(vh * pScale);
+    pc.getContext('2d').drawImage(cameraVideo, 0, 0, pc.width, pc.height);
+    const purl = pc.toDataURL('image/jpeg', 0.85);
+    lastPhotoFrame = { mimeType: 'image/jpeg', data: purl.split(',')[1] };
+  }
+  photoReaction.textContent = '';
+  photoShowButton.disabled = !lastPhotoFrame;
+
   const url = out.toDataURL('image/png');
   photoImg.src = url;
   photoDownload.href = url;
@@ -850,4 +871,24 @@ function capturePhoto() {
 shutterButton.addEventListener('click', capturePhoto);
 photoClose.addEventListener('click', () => {
   photoPreview.classList.add('hidden');
+});
+
+// --- 写真を見せる（撮影した静止画を認識・記憶する） ---
+photoShowButton.addEventListener('click', async () => {
+  if (!lastPhotoFrame || photoShowBusy) return;
+  photoShowBusy = true;
+  photoShowButton.disabled = true;
+  photoReaction.textContent = '……（見ている）';
+  try {
+    const reply = await generateVisionReply(lastPhotoFrame, '');
+    photoReaction.textContent = reply.text;
+    say(reply.text, reply.emotion);
+    saveShownEpisode(reply.text, ''); // 覚える（記録はオーナーモードの端末のみ）
+    refreshMemCtx();
+  } catch (err) {
+    photoReaction.textContent = `よく見えなかった。もう一度試してくれ。（${err.message}）`;
+  } finally {
+    photoShowBusy = false;
+    photoShowButton.disabled = false;
+  }
 });

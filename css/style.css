@@ -244,7 +244,25 @@ body.photo-mode #bubble { display: none; }
   border-radius: 12px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
 }
-.photo-actions { display: flex; gap: 10px; }
+.photo-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#photo-show-button {
+  padding: 12px 26px;
+  border-radius: 999px;
+  border: none;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+#photo-show-button:disabled { opacity: 0.45; cursor: default; }
+#photo-reaction {
+  color: #e8ecf4;
+  max-width: 640px;
+  text-align: center;
+  line-height: 1.7;
+  margin: 0;
+  white-space: pre-wrap;
+}
 #photo-download {
   padding: 12px 26px;
   border-radius: 999px;
