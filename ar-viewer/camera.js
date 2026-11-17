@@ -21,8 +21,16 @@ export class CameraManager {
 
   async start() {
     if (this.stream) return;
+    // 解像度を固定する。facingMode だけだとブラウザが毎回自由に解像度を選び、
+    // 初回と「カメラ入」2回目で縦横比が変わることがある。映像は object-fit: cover で
+    // 全面表示するため、縦横比が変わると切り取られ方＝画角まで変わってしまう
+    // （2026-11-18 実機報告）。ideal 指定なので対応できない端末では近い解像度に落ちる。
     this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
       audio: false,
     });
     this.video.srcObject = this.stream;
