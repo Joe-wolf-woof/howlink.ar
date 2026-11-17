@@ -3,9 +3,10 @@
  * カメラ映像の取得とフレームキャプチャ。
  * - 映像はステージ背景の <video> に流し、アバターを重ねる（簡易WebAR表現）
  * - captureFrame() は現在のフレームを JPEG の base64 で返す（Gemini 送信用）
- * 送信コストと遅延を抑えるため、長辺 768px に縮小してから送る。
+ * 長辺 1280px に縮小して送る。暗所（水槽・シーシャ店など）での物体判別では
+ * 解像度と JPEG 品質が効くため、768px/q0.7 から引き上げた（2026-11-17）。
  */
-const MAX_FRAME_WIDTH = 768;
+const MAX_FRAME_WIDTH = 1280;
 
 export class CameraManager {
   constructor(videoElement) {
@@ -50,7 +51,7 @@ export class CameraManager {
     const ctx = this.captureCanvas.getContext('2d');
     ctx.drawImage(this.video, 0, 0, w, h);
 
-    const dataUrl = this.captureCanvas.toDataURL('image/jpeg', 0.7);
+    const dataUrl = this.captureCanvas.toDataURL('image/jpeg', 0.85);
     return { mimeType: 'image/jpeg', data: dataUrl.split(',')[1] };
   }
 }
