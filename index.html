@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>HowLink</title>
-  <link rel="stylesheet" href="./css/style.css?v=20261117-1" />
+  <link rel="stylesheet" href="./css/style.css?v=20261117-2" />
   <script type="importmap">
   {
     "imports": {
@@ -47,6 +47,25 @@
     <p id="photo-reaction"></p>
   </div>
 
+  <div id="gallery" class="hidden">
+    <div class="gallery-head">
+      <h2>撮った写真</h2>
+      <button id="gallery-close">閉じる</button>
+    </div>
+    <p id="gallery-empty" class="hidden">まだ写真がありません。写真モードで撮ると、ここに貯まります。</p>
+    <div id="gallery-grid"></div>
+    <div id="gallery-detail" class="hidden">
+      <img id="gallery-detail-img" alt="保存した写真" />
+      <p id="gallery-detail-date"></p>
+      <div class="photo-actions">
+        <button id="gallery-show-button">ハウルに見せる</button>
+        <button id="gallery-delete-button">削除する</button>
+        <button id="gallery-back-button">一覧に戻る</button>
+      </div>
+      <p id="gallery-reaction"></p>
+    </div>
+  </div>
+
   <footer id="dock">
     <div class="talk-row">
       <input id="user-input" type="text" placeholder="ハウルに話しかける" autocomplete="off" />
@@ -54,6 +73,7 @@
     </div>
     <div class="action-row">
       <button id="photo-button">📷 写真を撮る</button>
+      <button id="gallery-button" class="sub-action">写真一覧</button>
       <button id="show-button" class="sub-action">見せる</button>
       <button id="camera-button" class="sub-action">カメラ切</button>
       <button id="settings-button" class="sub-action">設定</button>
@@ -86,6 +106,6 @@
     </div>
   </footer>
 
-  <script type="module" src="./main.js?v=20261117-7"></script>
+  <script type="module" src="./main.js?v=20261117-8"></script>
 </body>
 </html>

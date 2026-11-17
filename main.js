@@ -55,6 +55,18 @@ const photoImg = document.getElementById('photo-img');
 const photoDownload = document.getElementById('photo-download');
 const photoShowButton = document.getElementById('photo-show-button');
 const photoReaction = document.getElementById('photo-reaction');
+const galleryButton = document.getElementById('gallery-button');
+const galleryEl = document.getElementById('gallery');
+const galleryClose = document.getElementById('gallery-close');
+const galleryGrid = document.getElementById('gallery-grid');
+const galleryEmpty = document.getElementById('gallery-empty');
+const galleryDetail = document.getElementById('gallery-detail');
+const galleryDetailImg = document.getElementById('gallery-detail-img');
+const galleryDetailDate = document.getElementById('gallery-detail-date');
+const galleryShowButton = document.getElementById('gallery-show-button');
+const galleryDeleteButton = document.getElementById('gallery-delete-button');
+const galleryBackButton = document.getElementById('gallery-back-button');
+const galleryReaction = document.getElementById('gallery-reaction');
 const photoClose = document.getElementById('photo-close');
 
 const { renderer, scene, camera, ground } = createScene(container);
@@ -797,6 +809,134 @@ exportButton.addEventListener('click', () => {
   statusLine.textContent = `見せた記憶を${data.length}件書き出した。`;
 });
 
+// --- 撮った写真の蓄積（IndexedDB） ---
+// 写真はこの端末のブラウザ内に貯まる。合成写真（表示用）と、カメラだけの
+// フレーム（後から「見せる」用）を一緒に保存する。
+const PHOTO_DB_NAME = 'howlink-photos';
+const PHOTO_STORE_NAME = 'photos';
+const MAX_STORED_PHOTOS = 100;
+let photoDbPromise = null;
+
+function openPhotoDb() {
+  if (!photoDbPromise) {
+    photoDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(PHOTO_DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore(PHOTO_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return photoDbPromise;
+}
+
+async function listPhotos() {
+  const db = await openPhotoDb();
+  const all = await new Promise((resolve, reject) => {
+    const req = db.transaction(PHOTO_STORE_NAME, 'readonly').objectStore(PHOTO_STORE_NAME).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  return all.sort((a, b) => (a.date < b.date ? 1 : -1)); // 新しい順
+}
+
+async function storePhoto(record) {
+  const db = await openPhotoDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+    tx.objectStore(PHOTO_STORE_NAME).add(record);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  // 上限を超えたら古いものから消す。
+  const all = await listPhotos();
+  if (all.length > MAX_STORED_PHOTOS) {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(PHOTO_STORE_NAME);
+      all.slice(MAX_STORED_PHOTOS).forEach((p) => store.delete(p.id));
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+}
+
+async function deleteStoredPhoto(id) {
+  const db = await openPhotoDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE_NAME, 'readwrite');
+    tx.objectStore(PHOTO_STORE_NAME).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// --- 写真一覧（ギャラリー） ---
+let currentGalleryPhoto = null;
+let galleryShowBusy = false;
+
+async function renderGallery() {
+  const photos = await listPhotos().catch(() => []);
+  galleryGrid.innerHTML = '';
+  galleryEmpty.classList.toggle('hidden', photos.length > 0);
+  galleryDetail.classList.add('hidden');
+  galleryGrid.classList.remove('hidden');
+  currentGalleryPhoto = null;
+  photos.forEach((photo) => {
+    const item = document.createElement('button');
+    item.className = 'gallery-item';
+    const img = document.createElement('img');
+    img.src = photo.image;
+    img.alt = '保存した写真';
+    img.loading = 'lazy';
+    item.appendChild(img);
+    item.addEventListener('click', () => openGalleryDetail(photo));
+    galleryGrid.appendChild(item);
+  });
+}
+
+function openGalleryDetail(photo) {
+  currentGalleryPhoto = photo;
+  galleryDetailImg.src = photo.image;
+  galleryDetailDate.textContent = new Date(photo.date).toLocaleString('ja-JP');
+  galleryReaction.textContent = '';
+  galleryShowButton.disabled = !photo.frame;
+  galleryGrid.classList.add('hidden');
+  galleryDetail.classList.remove('hidden');
+}
+
+galleryButton.addEventListener('click', () => {
+  galleryEl.classList.remove('hidden');
+  renderGallery();
+});
+galleryClose.addEventListener('click', () => galleryEl.classList.add('hidden'));
+galleryBackButton.addEventListener('click', () => renderGallery());
+galleryDeleteButton.addEventListener('click', async () => {
+  if (!currentGalleryPhoto) return;
+  await deleteStoredPhoto(currentGalleryPhoto.id).catch(() => {});
+  renderGallery();
+});
+galleryShowButton.addEventListener('click', async () => {
+  const photo = currentGalleryPhoto;
+  if (!photo || !photo.frame || galleryShowBusy) return;
+  galleryShowBusy = true;
+  galleryShowButton.disabled = true;
+  galleryReaction.textContent = 'じっくり見ている。人間は興味深い…。';
+  try {
+    const reply = await generateVisionReply(photo.frame, '');
+    galleryReaction.textContent = reply.text;
+    say(reply.text, reply.emotion);
+    saveShownEpisode(reply.text, ''); // 覚える（記録はオーナーモードの端末のみ）
+    refreshMemCtx();
+  } catch (err) {
+    galleryReaction.textContent = `よく見えなかった。もう一度試してくれ。（${err.message}）`;
+  } finally {
+    galleryShowBusy = false;
+    galleryShowButton.disabled = false;
+  }
+});
+
 // --- 撮影モード（体験C） ---
 function enterPhotoMode() {
   photoMode = true;
@@ -859,6 +999,17 @@ function capturePhoto() {
   }
   photoReaction.textContent = '';
   photoShowButton.disabled = !lastPhotoFrame;
+
+  // 蓄積用に、合成写真を縮小JPEGでも保存する（一覧で見返し、後から見せ直せるように）。
+  try {
+    const sScale = Math.min(1, 1280 / Math.max(out.width, out.height));
+    const sc = document.createElement('canvas');
+    sc.width = Math.round(out.width * sScale);
+    sc.height = Math.round(out.height * sScale);
+    sc.getContext('2d').drawImage(out, 0, 0, sc.width, sc.height);
+    const storedImage = sc.toDataURL('image/jpeg', 0.82);
+    storePhoto({ date: new Date().toISOString(), image: storedImage, frame: lastPhotoFrame }).catch(() => {});
+  } catch { /* 保存に失敗しても撮影自体は続ける */ }
 
   const url = out.toDataURL('image/png');
   photoImg.src = url;
