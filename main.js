@@ -39,6 +39,9 @@ const settingsPanel = document.getElementById('settings-panel');
 const apiKeyInput = document.getElementById('api-key-input');
 const saveKeyButton = document.getElementById('save-key-button');
 const exportButton = document.getElementById('export-button');
+const ghTokenInput = document.getElementById('gh-token-input');
+const saveGhTokenButton = document.getElementById('save-gh-token-button');
+const syncStatus = document.getElementById('sync-status');
 const statusLine = document.getElementById('status-line');
 const photoUi = document.getElementById('photo-ui');
 const photoExit = document.getElementById('photo-exit');
@@ -140,6 +143,7 @@ function saveShownEpisode(text, userText) {
   try {
     localStorage.setItem(EPISODES_KEY, JSON.stringify(episodes.slice(-MAX_LOCAL_EPISODES)));
   } catch { /* 保存できなくても体験は止めない */ }
+  scheduleSync();
 }
 
 /** 直近の「見せた記憶」最大3件を、会話の文脈に足すためのテキスト */
@@ -154,6 +158,101 @@ function shownContext() {
 function refreshMemCtx() {
   memCtx = [memoryContext(memory), shownContext()].filter(Boolean).join('\n');
 }
+
+// --- 見せた記憶の自動同期（GitHub Contents API → howlink.ar リポジトリの data/shown-episodes.json） ---
+// howl-agent が投稿前に同ファイルを取得して中央ストアへ取り込む。
+// トークンは Gemini キーと同じく localStorage にのみ保存し、ソースには含めない。
+const GH_TOKEN_KEY = 'howling_github_token';
+const SHOWN_REPO_API = 'https://api.github.com/repos/Joe-wolf-woof/howlink.ar/contents/data/shown-episodes.json';
+
+function getGhToken() {
+  try { return localStorage.getItem(GH_TOKEN_KEY) || ''; } catch { return ''; }
+}
+
+function setGhToken(v) {
+  try {
+    if (v) localStorage.setItem(GH_TOKEN_KEY, v);
+    else localStorage.removeItem(GH_TOKEN_KEY);
+  } catch { /* 保存できなくても体験は止めない */ }
+}
+
+function b64EncodeUtf8(s) { return btoa(unescape(encodeURIComponent(s))); }
+
+function b64DecodeUtf8(b64) {
+  const bin = atob(String(b64).replace(/\n/g, ''));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function setSyncStatus(text) {
+  if (syncStatus) syncStatus.textContent = text;
+}
+
+let syncTimer = null;
+let syncRunning = false;
+
+function scheduleSync() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncShownEpisodes, 1200);
+}
+
+async function syncShownEpisodes() {
+  const token = getGhToken();
+  if (!token || syncRunning) return;
+  syncRunning = true;
+  try {
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+    };
+    let remote = [];
+    let sha = null;
+    const res = await fetch(SHOWN_REPO_API, { headers });
+    if (res.ok) {
+      const j = await res.json();
+      sha = j.sha || null;
+      try {
+        const parsed = JSON.parse(b64DecodeUtf8(j.content || ''));
+        if (Array.isArray(parsed)) remote = parsed;
+      } catch { remote = []; }
+    } else if (res.status !== 404) {
+      throw new Error(`GitHub GET ${res.status}`);
+    }
+    const norm = (list) => list
+      .filter((i) => i && i.date && i.text)
+      .map((i) => ({ date: i.date, kind: 'shown', text: i.text }))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const seen = new Set();
+    const merged = [];
+    for (const item of norm([...remote, ...loadLocalEpisodes()])) {
+      const key = `${String(item.date).slice(0, 10)}|${item.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+    if (JSON.stringify(merged) === JSON.stringify(norm(remote))) {
+      setSyncStatus(`見せた記憶は同期済み（${merged.length}件）。`);
+      return;
+    }
+    const put = await fetch(SHOWN_REPO_API, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: 'Sync shown episodes from HowLink app',
+        content: b64EncodeUtf8(JSON.stringify(merged, null, 2)),
+        ...(sha ? { sha } : {}),
+      }),
+    });
+    if (!put.ok) throw new Error(`GitHub PUT ${put.status}`);
+    setSyncStatus(`見せた記憶を${merged.length}件同期した。`);
+  } catch {
+    setSyncStatus('見せた記憶の同期に失敗した（次回また試す）。');
+  } finally {
+    syncRunning = false;
+  }
+}
+
+scheduleSync();
 
 // --- 吹き出しと小さな通知 ---
 let noteTimer = null;
@@ -587,6 +686,12 @@ settingsButton.addEventListener('click', () => {
 saveKeyButton.addEventListener('click', () => {
   setApiKey(apiKeyInput.value.trim());
   statusLine.textContent = 'キーを保存した。次に話すときから使う。';
+});
+ghTokenInput.value = getGhToken();
+saveGhTokenButton.addEventListener('click', async () => {
+  setGhToken(ghTokenInput.value.trim());
+  statusLine.textContent = 'GitHubトークンを保存した。';
+  await syncShownEpisodes();
 });
 
 // --- 見せた記憶の書き出し（将来 howl-agent のエピソード記憶へ取り込む連携フォーマット） ---
