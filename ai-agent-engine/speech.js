@@ -2,16 +2,15 @@
  * ai-agent-engine/speech.js
  * ハウルの鳴き声（Pixabay のフリー音源を再生）。
  * 人間の声での読み上げは廃止済み。返事の内容は吹き出しテキストで表示し、
- * 音はリアクションに合わせた3種の鳴き声から選ぶ:
- *   howl  … 遠吠え「ワオン！」（挨拶）
+ * 音はリアクションに合わせた2種の鳴き声から選ぶ:
  *   bark  … 2連吠え「バウワウ！」（発見・喜び）
- *   wuff  … 短い相槌「ワフッ」（通常の返事・考え中）
+ *   wuff  … 短い相槌「ワフッ」（挨拶・通常の返事・考え中）
  * 音源は Pixabay Sound Effects（クレジット表記不要のフリー音源）。
  * GitHub API 経由の公開はテキストファイルのみ対応のため、MP3 は base64 で
  * sound-data.js に埋め込み、実行時に Blob URL 化して再生する。
  * 音源の読み込み・再生に失敗した場合は、WebAudio 合成音にフォールバックする。
  */
-import { SOUND_DATA } from './sound-data.js?v=20261118-2';
+import { SOUND_DATA } from './sound-data.js?v=20261118-3';
 
 const urlCache = {};
 
@@ -33,7 +32,7 @@ function soundUrl(type) {
 
 let currentAudio = null;
 
-/** 鳴き声を鳴らす。cry: 'howl' | 'bark' | 'wuff' */
+/** 鳴き声を鳴らす。cry: 'bark' | 'wuff' */
 export function speak(cry = 'wuff') {
   const url = soundUrl(cry);
   if (url) {
@@ -120,9 +119,6 @@ function synthCry(cry) {
   currentOut = out;
   const t = ctx.currentTime + 0.02;
   switch (cry) {
-    case 'howl': // 遠吠え：長い1声
-      howlOnce(ctx, out, t, 0.95, 480);
-      break;
     case 'wuff': // ワフッ：短い1声
       howlOnce(ctx, out, t, 0.24, 520);
       break;

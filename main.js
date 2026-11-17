@@ -17,7 +17,7 @@ import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261113
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-1';
 import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261117-5';
-import { speak } from './ai-agent-engine/speech.js?v=20261118-3';
+import { speak } from './ai-agent-engine/speech.js?v=20261118-4';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
 
@@ -332,7 +332,7 @@ function showBubble(text) {
   bubble.classList.remove('hidden');
 }
 
-/** 感情タグ → 鳴き声の種類（speech.js の3種プリセットに対応） */
+/** 感情タグ → 鳴き声の種類（speech.js の2種プリセットに対応） */
 function cryForEmotion(emotion) {
   switch (emotion) {
     case 'happy': return 'bark'; // 発見・喜び → バウワウ（2連吠え）
@@ -679,7 +679,7 @@ async function beginWithCamera() {
   const cameraOk = await startCamera();
   if (!cameraOk) showNote('カメラなしでも会える。部屋の様子は見えていないがな。');
   await ensureMemory();
-  say(buildGreeting(memory), 'happy', { cry: 'howl' }); // 挨拶は遠吠え
+  say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
 }
 
 // 通常モードで開始する。WebXR の画角は端末の AR システム側が決めていて
@@ -700,7 +700,7 @@ arButton.addEventListener('click', async () => {
   if (await startXR()) {
     showNote('床にスマホを向けて、緑の輪が出た場所をタップして。');
     await ensureMemory();
-    say(buildGreeting(memory), 'happy', { cry: 'howl' }); // 挨拶は遠吠え
+    say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
     return;
   }
   await beginWithCamera();
