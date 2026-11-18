@@ -54,43 +54,47 @@ const DEFAULT_IMPRESSIONS = [
   '呟いた言葉は消えても、匂いのようなものが残る。ワガハイは覚えている。',
 ];
 
-function postGreeting(post, dayIndex) {
+function postGreeting(post, dayIndex, hello) {
   const keywords = KEYWORDS.filter((k) => (post.text || '').includes(k)).slice(0, 2);
   const topic = keywords.length
     ? `${keywords.join('と')}の話`
     : THEME_TOPICS[post.theme] || 'このあいだの話';
   const impressions = THEME_IMPRESSIONS[post.theme] || DEFAULT_IMPRESSIONS;
   const impression = impressions[dayIndex % impressions.length];
-  return `おかえり、家の人間。このあいだXで呟いた${topic}を覚えているか。${impression}`;
+  return `${hello}このあいだXで呟いた${topic}を覚えているか。${impression}`;
 }
 
 /**
  * 挨拶文を組み立てる。
  * - 初回訪問: 導入の挨拶
  * - 再訪: 最新のX投稿に触れる／ポトスのエピソードに触れる／定番、を日替わりで回す
+ * 呼称はペルソナ v0.6 の適用範囲に従う：「家の人間」は家主本人（isOwner）の
+ * 端末でのみ使い、それ以外の利用者には「人間」と呼びかける。
  */
-export function buildGreeting(memory) {
+export function buildGreeting(memory, { isOwner = true } = {}) {
   const posts = memory?.posts || [];
   const episodes = memory?.episodes || [];
   const latestPost = posts[posts.length - 1];
+  const hello = isOwner ? 'おかえり、家の人間。' : 'やあ、人間。';
 
   if (!localStorage.getItem('howling_visited')) {
     localStorage.setItem('howling_visited', new Date().toISOString());
-    return 'やあ、家の人間。ワガハイはハウル。今日からこの部屋に住むことにした。時々会いに来い。ワガハイはいつもここにいる。';
+    const who = isOwner ? '家の人間' : '人間';
+    return `やあ、${who}。ワガハイはハウル。人間について学ぶオオカミだ。時々会いに来い。ワガハイはいつもここにいる。`;
   }
 
   const dayIndex = Math.floor(Date.now() / 86400000);
   const templates = [];
   if (latestPost) {
-    templates.push(postGreeting(latestPost, dayIndex));
+    templates.push(postGreeting(latestPost, dayIndex, hello));
   }
   if (episodes.some((e) => (e.summary || '').includes('ポトス'))) {
     templates.push(
-      'おかえり、家の人間。前に見せてもらったポトス、今日も葉が光っているか。水の匂いが恋しい頃かもしれぬ。'
+      `${hello}前に見せてもらったポトス、今日も葉が光っているか。水の匂いが恋しい頃かもしれぬ。`
     );
   }
   templates.push(
-    'おかえり、家の人間。ワガハイはここで待っていた。今日はどんな匂いのする一日だった。'
+    `${hello}ワガハイはここで待っていた。今日はどんな匂いのする一日だった。`
   );
 
   return templates[dayIndex % templates.length];

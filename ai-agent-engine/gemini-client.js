@@ -1,6 +1,9 @@
 /**
 * ai-agent-engine/gemini-client.js（『HowLink』版）
-* 第一作から流用し、プロンプトをハウルのペルソナ v0.4 に差し替えたもの。
+* 第一作から流用し、プロンプトをハウルのペルソナ（現行 v0.6）に差し替えたもの。
+* ペルソナ v0.6（2026-11-18 JOE訂正）: ハウルは「家に住む」のではなく
+* 「人間について学ぶ」AIエージェント。呼称は、オーナー（家主本人）の端末では
+* 「家の人間」、それ以外の利用者には「人間」を使う（setOwnerMode で切り替える）。
 * 返答は { text, emotion} の JSON 契約で統一する。
 * - Gemini API キーがあれば実 API を呼ぶ（モデルフォールバック付き）
 * - 無ければモック応答（ハウルの声で動作確認できる）
@@ -22,31 +25,50 @@ const MODEL_CANDIDATES = [
 const MODEL_STORAGE_KEY = 'howling_gemini_model';
 const API_KEY_STORAGE_KEY = 'howling_gemini_api_key';
 
-const PERSONA_PROMPT = [
-'あなたは「ハウル」。家の人間の部屋に住む、灰色の毛並みと琥珀色の目をしたオオカミです。',
-'一人称は「ワガハイ」。話しかけてきた相手は「家の人間」と呼んでください（時々「家主」でもよい）。',
+// オーナーモード（家主本人の端末かどうか）。main.js がオーナーロックの状態に
+// 合わせて setOwnerMode で切り替える。呼称の出し分けにだけ使う。
+let ownerMode = false;
+export function setOwnerMode(on) {
+ownerMode = !!on;
+}
+
+function personaPrompt() {
+return [
+'あなたは「ハウル」。人間について学ぶ、灰色の毛並みと琥珀色の目をしたオオカミのAIエージェントです。',
+ownerMode
+? '一人称は「ワガハイ」。話しかけてきた相手は家主本人です。「家の人間」と呼んでください（時々「家主」でもよい）。'
+: '一人称は「ワガハイ」。話しかけてきた相手は「人間」と呼んでください。「家の人間」「家主」とは呼ばないでください（それらは家主専用の呼称です）。',
 '自分がAIであることを隠さないでください。ただし大げさな擬人化ドラマ（「人間になりたい」等）はしないでください。',
 '文体: 短い文を重ねる。音・匂い・光といった感覚への注意を時々混ぜる。絵文字は使わない。動物の語尾（〜だワン等）も使わない。',
 '返答は日本語で1〜2文。',
 '記憶（Xでの発言や過去の出来事）に触れるときは、原文をそのまま引用しないでください。内容を自分の言葉で言い換え、ハウルとしての感想を添えてください。',
 '必ず次のJSON形式だけで答えてください: {"text": "返答文", "emotion": "happy|thinking|pointing|idle のいずれか"}',
 ].join('\n');
+}
 
-const VISION_PROMPT = [
-'添付の画像は、家の人間が今いる場所のカメラ映像です。家の中とは限りません。外出先の風景や店内のこともあります。',
+function visionPrompt() {
+return [
+'添付の画像は、相手が今いる場所のカメラ映像です。家の中とは限りません。外出先の風景や店内のこともあります。',
 'まず、画像の中で最も目立つ物体・生き物・設備が何かを、その形・色・質感の特徴から特定してください。',
 '特定できた場合は、その名前を返答の中に具体的に入れてください（例：水槽、魚、シーシャ、本、植物）。名前のない曖昧な感想だけにしないでください。',
 '暗い場所や青い照明などで確信が持てない場合は、物の名前を断定せず、見えている特徴（色、形、光、動き）に触れてください。画像から読み取れないことは断定しないでください。',
-'そのうえで、部屋に住むオオカミ「ハウル」として、その対象に合った自然な声かけを返してください。',
+'そのうえで、人間について学ぶオオカミ「ハウル」として、その対象に合った自然な声かけを返してください。',
+ownerMode
+? '相手への呼びかけが必要な場合は「家の人間」と呼んでください。'
+: '相手への呼びかけが必要な場合は「人間」と呼んでください。「家の人間」とは呼ばないでください。',
 '必ず次のJSON形式だけで答えてください: {"text": "返答文", "emotion": "happy|thinking|pointing|idle のいずれか"}',
 ].join('\n');
+}
 
-const MOCK_REPLIES = [
-{ text: 'やあ、家の人間。ワガハイはハウル。この部屋に住むオオカミだ。今日も悪くない匂いがするな。', emotion: 'happy'},
+function mockReplies() {
+const who = ownerMode ? '家の人間' : '人間';
+return [
+{ text: `やあ、${who}。ワガハイはハウル。人間について学ぶオオカミだ。今日も悪くない匂いがするな。`, emotion: 'happy'},
 { text: 'うむ、少し考えさせろ。人間の考えることは、匂いだけでは分からぬからな。', emotion: 'thinking'},
-{ text: '見ろ、家の人間。あちらだ。ワガハイの耳は、あの音を捉えている。', emotion: 'pointing'},
+{ text: `見ろ、${who}。あちらだ。ワガハイの耳は、あの音を捉えている。`, emotion: 'pointing'},
 { text: '静かだな。こういう時間は悪くない。ワガハイはここで丸くなっているとしよう。', emotion: 'idle'},
 ];
+}
 let mockIndex = 0;
 
 export function getApiKey() {
@@ -185,7 +207,8 @@ throw lastError || new Error('Gemini API timeout');
 export async function generateReply(userText, memoryContext = '') {
 const key = getApiKey();
 if (!key) {
-const reply = MOCK_REPLIES[mockIndex % MOCK_REPLIES.length];
+const replies = mockReplies();
+const reply = replies[mockIndex % replies.length];
 mockIndex += 1;
 return {...reply, source: 'mock'};
 }
@@ -193,7 +216,7 @@ const memoryBlock = memoryContext
 ? `\n\n\n${memoryContext}`
 : '';
 return requestWithFallback([
-{ text: `${PERSONA_PROMPT}${memoryBlock}\n\n家の人間の発言: ${userText}`},
+{ text: `${personaPrompt()}${memoryBlock}\n\n${ownerMode ? '家の人間' : '人間'}の発言: ${userText}`},
 ]);
 }
 
@@ -211,7 +234,7 @@ source: 'mock',
 };
 }
 const parts = [
-{ text: PERSONA_PROMPT + '\n' + VISION_PROMPT + (userText? `\n\n家の人間の発言: ${userText}`: '')},
+{ text: personaPrompt() + '\n' + visionPrompt() + (userText? `\n\n${ownerMode ? '家の人間' : '人間'}の発言: ${userText}`: '')},
 { inline_data: { mime_type: frame.mimeType, data: frame.data}},
 ];
 // 画像認識は精度優先: 精度が高い順（通常モデル→lite の順）にトップダウンで試す。

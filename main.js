@@ -16,10 +16,10 @@ import * as THREE from 'three';
 import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261118-1';
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-2';
-import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261118-1';
+import { generateReply, generateVisionReply, getApiKey, setApiKey, setOwnerMode } from './ai-agent-engine/gemini-client.js?v=20261118-2';
 import { speak } from './ai-agent-engine/speech.js?v=20261118-5';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
-import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
+import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261118-1';
 
 const stage = document.getElementById('stage');
 const container = document.getElementById('canvas-container');
@@ -163,6 +163,7 @@ function setOwnerUnlocked(on) {
     else localStorage.removeItem(OWNER_UNLOCK_KEY);
   } catch { /* 保存できなくても体験は止めない */ }
   refreshOwnerStatus();
+  setOwnerMode(memoryEnabled()); // 呼称の出し分け（家の人間／人間）を現在の状態に合わせる
 }
 
 function refreshOwnerStatus() {
@@ -694,7 +695,7 @@ async function beginWithCamera() {
   const cameraOk = await startCamera();
   if (!cameraOk) showNote('カメラなしでも会える。部屋の様子は見えていないがな。');
   await ensureMemory();
-  say(buildGreeting(memory), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
+  say(buildGreeting(memory, { isOwner: memoryEnabled() }), 'happy', { cry: 'wuff' }); // 挨拶も短い相槌ワフッ
 }
 
 // 開始ボタンは1つ（2026-11-18 JOE指定）。常に通常モード（カメラ）で開始し、
@@ -740,7 +741,7 @@ async function autoStart() {
     return;
   }
   await ensureMemory();
-  const played = await say(buildGreeting(memory), 'happy', { cry: 'wuff' });
+  const played = await say(buildGreeting(memory, { isOwner: memoryEnabled() }), 'happy', { cry: 'wuff' });
   if (played === false) {
     // 自動再生制限で鳴らなかった時だけ、最初のタップで鳴き声を解放する
     window.addEventListener('pointerdown', () => { speak('wuff'); }, { once: true });
@@ -833,6 +834,7 @@ saveGhTokenButton.addEventListener('click', async () => {
 
 // --- 設定（オーナーロック） ---
 refreshOwnerStatus();
+setOwnerMode(memoryEnabled());
 setOwnerPassButton.addEventListener('click', async () => {
   const pw = ownerPassInput.value.trim();
   if (!pw) { statusLine.textContent = '合言葉を入力して。'; return; }
