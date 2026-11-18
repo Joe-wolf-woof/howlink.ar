@@ -17,7 +17,7 @@ import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261118
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-2';
 import { generateReply, generateVisionReply, getApiKey, setApiKey } from './ai-agent-engine/gemini-client.js?v=20261118-1';
-import { speak } from './ai-agent-engine/speech.js?v=20261118-4';
+import { speak } from './ai-agent-engine/speech.js?v=20261118-5';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261115-1';
 
@@ -45,6 +45,8 @@ const ownerPassInput = document.getElementById('owner-pass-input');
 const setOwnerPassButton = document.getElementById('set-owner-pass-button');
 const toggleOwnerButton = document.getElementById('toggle-owner-button');
 const ownerStatus = document.getElementById('owner-status');
+const toggleTitleButton = document.getElementById('toggle-title-button');
+const titleModeStatus = document.getElementById('title-mode-status');
 const syncStatus = document.getElementById('sync-status');
 const statusLine = document.getElementById('status-line');
 const photoUi = document.getElementById('photo-ui');
@@ -343,7 +345,7 @@ function cryForEmotion(emotion) {
 function say(text, emotion = 'idle', { speakIt = true, cry = null } = {}) {
   showBubble(text);
   motion.play(emotion);
-  if (speakIt) speak(cry || cryForEmotion(emotion));
+  if (speakIt) return speak(cry || cryForEmotion(emotion));
 }
 
 // --- 接地：タップした地面の位置へハウルが移動する（第一作 Phase 3-C を踏襲） ---
@@ -701,9 +703,53 @@ async function beginWithCamera() {
 startButton.addEventListener('click', async () => {
   if (started) return;
   started = true;
+  markVisited();
   dismissStartOverlay();
   await beginWithCamera();
 });
+
+// --- 再訪時の自動開始（クローンで実装、2026-11-18） ---
+// 初回はタイトル画面から開始し、訪問フラグを立てる。2回目以降はタイトルを
+// スキップして即カメラ開始する（再訪者の目的は確定しているため、関門を消す）。
+// カメラが取れない場合はタイトル画面に戻す（フォールバック）。
+// 挨拶の鳴き声が自動再生制限で鳴らなかった場合は、最初の画面タップで
+// 鳴らし直す（音はタップで解放）。設定で「タイトル画面を毎回表示する」を
+// 選んだ場合は、再訪時も常にタイトル画面から開始する。
+const VISITED_KEY = 'howlink_visited';
+const SHOW_TITLE_KEY = 'howlink_show_title';
+
+function hasVisited() {
+  try { return localStorage.getItem(VISITED_KEY) === '1'; } catch { return false; }
+}
+function markVisited() {
+  try { localStorage.setItem(VISITED_KEY, '1'); } catch { /* 保存できなくても体験は止めない */ }
+}
+function alwaysShowTitle() {
+  try { return localStorage.getItem(SHOW_TITLE_KEY) === '1'; } catch { return false; }
+}
+
+async function autoStart() {
+  if (started) return;
+  started = true;
+  startOverlay.classList.add('hidden'); // フェードを挟まず即座に消す
+  const cameraOk = await startCamera();
+  if (!cameraOk) {
+    // フォールバック：タイトル画面に戻し、通常の開始（ボタン）に委ねる
+    started = false;
+    startOverlay.classList.remove('hidden');
+    return;
+  }
+  await ensureMemory();
+  const played = await say(buildGreeting(memory), 'happy', { cry: 'wuff' });
+  if (played === false) {
+    // 自動再生制限で鳴らなかった時だけ、最初のタップで鳴き声を解放する
+    window.addEventListener('pointerdown', () => { speak('wuff'); }, { once: true });
+  }
+}
+
+if (hasVisited() && !alwaysShowTitle()) {
+  autoStart();
+}
 
 // --- 会話 ---
 let talkBusy = false;
@@ -815,6 +861,25 @@ toggleOwnerButton.addEventListener('click', async () => {
   } else {
     statusLine.textContent = '合言葉が違う。';
   }
+});
+
+// --- 設定（タイトル画面の表示） ---
+function refreshTitleModeStatus() {
+  const always = alwaysShowTitle();
+  titleModeStatus.textContent = always
+    ? 'タイトル画面：毎回表示する。開始は「ハウルに会いに行く」から。'
+    : 'タイトル画面：2回目以降は表示せず、すぐにカメラが始まる。';
+  toggleTitleButton.textContent = always
+    ? 'タイトル画面を2回目以降はスキップする'
+    : 'タイトル画面を毎回表示する';
+}
+refreshTitleModeStatus();
+toggleTitleButton.addEventListener('click', () => {
+  try {
+    if (alwaysShowTitle()) localStorage.removeItem(SHOW_TITLE_KEY);
+    else localStorage.setItem(SHOW_TITLE_KEY, '1');
+  } catch { /* 保存できなくても表示だけは更新する */ }
+  refreshTitleModeStatus();
 });
 
 // --- 見せた記憶の書き出し（将来 howl-agent のエピソード記憶へ取り込む連携フォーマット） ---

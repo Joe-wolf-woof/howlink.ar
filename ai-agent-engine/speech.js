@@ -32,7 +32,10 @@ function soundUrl(type) {
 
 let currentAudio = null;
 
-/** 鳴き声を鳴らす。cry: 'bark' | 'wuff' */
+/** 鳴き声を鳴らす。cry: 'bark' | 'wuff'
+ *  戻り値は Promise<boolean>：実音源の再生が始まったら true、
+ *  自動再生制限などで再生できずフォールバックした場合は false。
+ *  呼び出し側は戻り値を無視してもよい（従来どおりの使い方も可能）。 */
 export function speak(cry = 'wuff') {
   const url = soundUrl(cry);
   if (url) {
@@ -45,11 +48,14 @@ export function speak(cry = 'wuff') {
       currentAudio = audio;
       audio.volume = 0.9;
       const p = audio.play();
-      if (p && typeof p.catch === 'function') p.catch(() => synthCry(cry));
-      return;
+      if (p && typeof p.then === 'function') {
+        return p.then(() => true).catch(() => { synthCry(cry); return false; });
+      }
+      return Promise.resolve(true);
     } catch { /* 合成音にフォールバックする */ }
   }
   synthCry(cry);
+  return Promise.resolve(false);
 }
 
 // --- フォールバック: WebAudio 合成（音源が使えない時の従来実装） ---
