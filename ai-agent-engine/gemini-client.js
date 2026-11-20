@@ -196,7 +196,7 @@ s.add(model);
 try { localStorage.setItem(NO_THINKING_KEY, JSON.stringify([...s])); } catch { /* 保存できなくても続行 */ }
 }
 
-async function requestWithFallback(parts, { timeoutMs = 12000, timeouts = null, deadlineMs = 30000, models = null } = {}) {
+async function requestWithFallback(parts, { timeoutMs = 12000, timeouts = null, deadlineMs = 30000, models = null, saveModel = true } = {}) {
 const key = getApiKey();
 let lastError = null;
 const startedAt = Date.now();
@@ -210,7 +210,7 @@ if (Date.now() - startedAt > deadlineMs) break;
 const skipThinking = noThinkingModels().has(model);
 try {
 const reply = await callModel(model, key, parts, { thinking: !skipThinking, timeoutMs: modelTimeout });
-localStorage.setItem(MODEL_STORAGE_KEY, model);
+if (saveModel) localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (err) {
 lastError = err;
@@ -222,7 +222,7 @@ if (err.status === 400 && !skipThinking) {
 markNoThinking(model);
 try {
 const reply = await callModel(model, key, parts, { thinking: false, timeoutMs: modelTimeout });
-localStorage.setItem(MODEL_STORAGE_KEY, model);
+if (saveModel) localStorage.setItem(MODEL_STORAGE_KEY, model);
 return reply;
 } catch (retryErr) {
 lastError = retryErr;
@@ -278,13 +278,18 @@ const parts = [
 { text: personaPrompt() + '\n' + visionPrompt() + (userText? `\n\n${ownerMode ? '家の人間' : '人間'}の発言: ${userText}`: '')},
 { inline_data: { mime_type: frame.mimeType, data: frame.data}},
 ];
-// 画像認識は精度優先: 精度が高い順（通常モデル→lite の順）にトップダウンで試す。
-// 時間配分も精度側に比重を置き、上位モデルほど長く待つ（20秒→15秒→10秒→…）。
-// 前回成功したモデルの優先（orderedModels）は使わず、順序は固定とする。全体45秒で打ち切る。
+// 画像認識は速度優先の二段構え（2026-11-21 案2）: まず軽量な lite を
+// 短いタイムアウトで試し、エラー／形式不良なら従来の精度順チェーン
+// （通常モデル）へそのままフォールバックする。返答の完全性は案1＋案3で
+// 実機確認済みだが、体感で10秒以上かかったため全体締切も45秒→約25秒に短縮し、
+// 個別タイムアウトも締切内に収まるよう配分し直した（8秒→9秒→5秒→4秒）。
+// 前回成功したモデルの優先（orderedModels）は使わず、順序は固定とする。
+// また、視覚の成功モデルを localStorage に保存すると会話フローのモデル順序まで
+// lite 優先に変わってしまうため、視覚フローでは保存しない（saveModel: false）。
 const visionModels = [
-...MODEL_CANDIDATES.filter((m) => !m.includes('lite')),
 ...MODEL_CANDIDATES.filter((m) => m.includes('lite')),
+...MODEL_CANDIDATES.filter((m) => !m.includes('lite')),
 ];
-const visionTimeouts = [20000, 15000, 10000, 8000];
-return requestWithFallback(parts, { timeouts: visionTimeouts, timeoutMs: 8000, deadlineMs: 45000, models: visionModels });
+const visionTimeouts = [8000, 9000, 5000, 4000];
+return requestWithFallback(parts, { timeouts: visionTimeouts, timeoutMs: 4000, deadlineMs: 25000, models: visionModels, saveModel: false });
 }
