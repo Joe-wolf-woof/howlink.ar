@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { createScene, tryLoadAvatarModel } from './ar-viewer/scene.js?v=20261118-1';
 import { createPlaceholderAvatar, createGlbAvatar } from './ar-viewer/avatar.js';
 import { CameraManager } from './ar-viewer/camera.js?v=20261118-2';
-import { generateReply, generateVisionReply, getApiKey, setApiKey, setOwnerMode } from './ai-agent-engine/gemini-client.js?v=20261118-2';
+import { generateReply, generateVisionReply, getApiKey, setApiKey, setOwnerMode, classifyError } from './ai-agent-engine/gemini-client.js?v=20261120-1';
 import { speak } from './ai-agent-engine/speech.js?v=20261118-5';
 import { MotionController } from './motion-controller/motion-controller.js?v=20261113-9';
 import { loadMemory, buildGreeting, memoryContext } from './memory/greeting.js?v=20261118-1';
@@ -780,35 +780,62 @@ userInput.addEventListener('keydown', (e) => {
 
 // --- 見せる（体験B：カメラ越しに物を見せると反応し、その反応が記憶に残る） ---
 let showBusy = false;
+// 失敗した「見せる」のフレームを保持し、撮り直しなしで再送できるようにする（2026-11-20）。
+// 保持中はボタンの表示が「もう一度見る」になり、押すと保持フレームで再試行する。
+let pendingShowRetry = null;
+function clearShowRetry() {
+  pendingShowRetry = null;
+  showButton.textContent = '見せる';
+}
 async function showToHowl() {
   if (showBusy || talkBusy) return;
   if (xrActive) {
     showNote('見せるは通常モードで使ってくれ。戻るには「AR終了」を押して。');
     return;
   }
-  if (!cameraManager.isRunning) {
-    showNote('カメラが止まっている。「カメラ入」を押してから見せてくれ。');
-    return;
+  let frame;
+  let userText;
+  if (pendingShowRetry) {
+    // 再試行：保持したフレームと発話でそのまま送り直す（カメラの状態に依存しない）。
+    frame = pendingShowRetry.frame;
+    userText = pendingShowRetry.userText;
+  } else {
+    if (!cameraManager.isRunning) {
+      showNote('カメラが止まっている。「カメラ入」を押してから見せてくれ。');
+      return;
+    }
+    frame = cameraManager.captureFrame();
+    if (!frame) {
+      showNote('まだ映像が届いていない。少し待ってから見せて。');
+      return;
+    }
+    userText = userInput.value.trim();
   }
-  const frame = cameraManager.captureFrame();
-  if (!frame) {
-    showNote('まだ映像が届いていない。少し待ってから見せて。');
-    return;
-  }
-  const userText = userInput.value.trim();
   showBusy = true;
   showButton.disabled = true;
   showBubble('……');
   motion.play('thinking'); // 待っている間も「見ている」ことが伝わるように
   try {
     const reply = await generateVisionReply(frame, userText);
+    clearShowRetry();
     say(reply.text, reply.emotion);
     saveShownEpisode(reply.text, userText); // 覚える：反応をエピソードとして保存
     refreshMemCtx(); // 以後の会話で「前に見せてもらった物」に触れられるようにする
     if (userText) userInput.value = '';
   } catch (err) {
-    say('よく見えなかった。もう一度見せてくれ。', 'thinking', { speakIt: false });
-    statusLine.textContent = `エラー: ${err.message}`;
+    // エラーの種別ごとに、ハウルの言葉と対処を出し分ける（2026-11-20）。
+    pendingShowRetry = { frame, userText };
+    showButton.textContent = 'もう一度見る';
+    const kind = classifyError(err);
+    const label = { timeout: '時間切れ', format: '応答形式', api: 'API', network: '通信' }[kind] || '不明';
+    const msg = {
+      timeout: 'すまん、時間がかかりすぎた。「もう一度見る」を押してくれ。同じ映像で見直す。',
+      format: 'すまん、言葉がうまくまとまらなかった。「もう一度見る」を押してくれ。同じ映像で見直す。',
+      api: 'すまん、向こう側の都合で見られなかった。少し待って「もう一度見る」を押してくれ。',
+      network: 'すまん、通信が届かなかった。「もう一度見る」を押してくれ。同じ映像で見直す。',
+    }[kind] || 'よく見えなかった。「もう一度見る」を押してくれ。同じ映像で見直す。';
+    say(msg, 'thinking', { speakIt: false });
+    statusLine.textContent = `エラー（${label}）: ${err.message}`;
   } finally {
     showBusy = false;
     showButton.disabled = false;
@@ -1091,6 +1118,7 @@ function capturePhoto() {
     lastPhotoFrame = { mimeType: 'image/jpeg', data: purl.split(',')[1] };
   }
   photoReaction.textContent = '';
+  clearShowRetry(); // 新しく撮ったら、保持中の「見せる」再試行フレームは破棄する
   photoShowButton.disabled = !lastPhotoFrame;
 
   // 蓄積用に、合成写真を縮小JPEGでも保存する（一覧で見返し、後から見せ直せるように）。
@@ -1130,7 +1158,9 @@ photoShowButton.addEventListener('click', async () => {
     saveShownEpisode(reply.text, ''); // 覚える（記録はオーナーモードの端末のみ）
     refreshMemCtx();
   } catch (err) {
-    photoReaction.textContent = `よく見えなかった。もう一度試してくれ。（${err.message}）`;
+    const kind = classifyError(err);
+    const label = { timeout: '時間切れ', format: '応答形式', api: 'API', network: '通信' }[kind] || '不明';
+    photoReaction.textContent = `よく見えなかった。もう一度試してくれ。（${label}: ${err.message}）`;
   } finally {
     photoShowBusy = false;
     photoShowButton.disabled = false;

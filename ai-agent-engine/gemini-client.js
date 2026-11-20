@@ -56,6 +56,7 @@ return [
 ownerMode
 ? '相手への呼びかけが必要な場合は「家の人間」と呼んでください。'
 : '相手への呼びかけが必要な場合は「人間」と呼んでください。「家の人間」とは呼ばないでください。',
+'返答は2文以内、合計120字程度に収めてください。長く説明しないでください。',
 '必ず次のJSON形式だけで答えてください: {"text": "返答文", "emotion": "happy|thinking|pointing|idle のいずれか"}',
 ].join('\n');
 }
@@ -91,7 +92,8 @@ return MODEL_CANDIDATES;
 async function callModel(model, key, parts, { thinking = true, timeoutMs = 12000 } = {}) {
 // 応答は1〜2文のJSONのみ。thinking を切って出力上限を絞ることで、
 // 思考トークンに時間を食われる問題（実測: 956トークン消費）を断つ。
-const generationConfig = { responseMimeType: 'application/json', maxOutputTokens: 300 };
+// 出力上限は 512（2026-11-20: 300 では応答が途中で切れて JSON が壊れる実機報告があり増量）。
+const generationConfig = { responseMimeType: 'application/json', maxOutputTokens: 512 };
 if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 0 };
 const body = {
 contents: [{ role: 'user', parts}],
@@ -137,8 +139,45 @@ throw err;
 }
 const data = await res.json();
 const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?? '';
-const parsed = JSON.parse(raw);
+const parsed = parseReply(raw);
+if (!parsed) {
+// 応答形式の異常は「このモデルの失敗」として扱い、フォールバック側で次を試させる。
+const err = new Error('Gemini response format error');
+err.format = true;
+throw err;
+}
 return { text: parsed.text, emotion: parsed.emotion || 'idle', source: `gemini (${model})`};
+}
+
+// 応答テキストを { text, emotion } に読み解く。素直な JSON で読めなければ、
+// 前後に混ざった文や、途中で切れた JSON からでも text を救済する（2026-11-20）。
+function parseReply(raw) {
+if (!raw) return null;
+try {
+const p = JSON.parse(raw);
+if (p && typeof p.text === 'string' && p.text) return { text: p.text, emotion: p.emotion || 'idle'};
+} catch { /* 救済へ */ }
+const block = raw.match(/\{[\s\S]*\}/);
+if (block) {
+try {
+const p = JSON.parse(block[0]);
+if (p && typeof p.text === 'string' && p.text) return { text: p.text, emotion: p.emotion || 'idle'};
+} catch { /* 救済2へ */ }
+}
+const t = raw.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)/);
+if (t) {
+try { return { text: JSON.parse(`"${t[1]}"`), emotion: 'idle'}; } catch { /* 救済失敗 */ }
+}
+return null;
+}
+
+// エラーの種別を呼び出し側（表示の分岐）に渡すための分類（2026-11-20）。
+export function classifyError(err) {
+if (!err) return 'unknown';
+if (err.timeout) return 'timeout';
+if (err.format) return 'format';
+if (err.status) return 'api';
+return 'network';
 }
 
 // thinkingConfig（thinkingBudget）を拒否するモデルを覚えておく。
@@ -192,6 +231,8 @@ if (![400, 404, 429, 503].includes(retryErr.status)) throw retryErr;
 continue;
 }
 }
+// 応答形式の異常（JSON が壊れた等）は、そのモデル固有の失敗として次を試す。
+if (err.format) continue;
 // 404（モデル不可）・429（レート制限）・503（高負荷）・400（再試行後）は別モデルで再試行する。
 // それ以外（キー不正など）は即座に投げる。
 if (![400, 404, 429, 503].includes(err.status)) throw err;
